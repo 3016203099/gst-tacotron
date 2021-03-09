@@ -5,7 +5,7 @@ from text.symbols import symbols
 from util.infolog import log
 from util.ops import shape_list
 from .helpers import TacoTestHelper, TacoTrainingHelper
-from .modules import encoder_cbhg, post_cbhg, prenet, reference_encoder
+from .modules import encoder_cbhg, post_cbhg, prenet, reference_encoder, GRL, Adversarial_loss
 from .rnn_wrappers import DecoderPrenetWrapper, ConcatOutputAndAttentionWrapper, ZoneoutWrapper
 from .multihead_attention import MultiheadAttention
 
@@ -15,12 +15,14 @@ class Tacotron():
     self._hparams = hparams
 
 
-  def initialize(self, inputs, input_lengths, mel_targets=None, linear_targets=None, reference_mel=None):
+  def initialize(self, xvector, inputs, input_lengths, mel_targets=None, linear_targets=None, reference_mel=None):
     '''Initializes the model for inference.
 
     Sets "mel_outputs", "linear_outputs", and "alignments" fields.
 
     Args:
+      xvector: int32 Tensor with shape [N, 1, 256]
+
       inputs: int32 Tensor with shape [N, T_in] where N is batch size, T_in is number of
         steps in the input time series, and values are character IDs
       input_lengths: int32 Tensor with shape [N] where N is batch size and values are the lengths
@@ -88,9 +90,14 @@ class Tacotron():
         style_embeddings = tf.matmul(random_weights, tf.nn.tanh(gst_tokens))
         style_embeddings = tf.reshape(style_embeddings, [1, 1] + [hp.num_heads * gst_tokens.get_shape().as_list()[1]])
 
+      self.xvector = xvector
+      r_style_embeddings = GRL(style_embeddings, scope='GRL')
+      xvec_out = Adversarial_loss(r_style_embeddings, scope='style2xvec')
+
       # Add style embedding to every text encoder state
+      xvector = tf.tile(xvector, [1, shape_list(encoder_outputs)[1], 1]) # [N, T_in, 256]
       style_embeddings = tf.tile(style_embeddings, [1, shape_list(encoder_outputs)[1], 1]) # [N, T_in, 128]
-      encoder_outputs = tf.concat([encoder_outputs, style_embeddings], axis=-1)
+      encoder_outputs = tf.concat([encoder_outputs, style_embeddings, xvector], axis=-1)
 
       # Attention
       attention_cell = AttentionWrapper(
@@ -142,6 +149,8 @@ class Tacotron():
       self.mel_targets = mel_targets
       self.linear_targets = linear_targets
       self.reference_mel = reference_mel
+
+      self.xvec_out = xvec_out
       log('Initialized Tacotron model. Dimensions: ')
       log('  text embedding:          %d' % embedded_inputs.shape[-1])
       log('  style embedding:         %d' % style_embeddings.shape[-1])
@@ -162,6 +171,7 @@ class Tacotron():
       hp = self._hparams
       self.mel_loss = tf.reduce_mean(tf.abs(self.mel_targets - self.mel_outputs))
       self.linear_loss = tf.reduce_mean(tf.abs(self.linear_targets - self.linear_outputs))
+      self.xvec_loss = tf.reduce_mean(tf.abs(self.xvector - self.xvec_out))
       self.loss = self.mel_loss + self.linear_loss
 
 

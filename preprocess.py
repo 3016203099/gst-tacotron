@@ -2,8 +2,16 @@ import argparse
 import os
 from multiprocessing import cpu_count
 from tqdm import tqdm
-from datasets import blizzard, ljspeech, blizzard2013
+from datasets import blizzard, ljspeech, blizzard2013, CTS_CN
 from hparams import hparams
+
+
+def preprocess_CTS(args):
+  in_dir = os.path.join(args.data_dir, 'database/CTS_CN/segmented')
+  out_dir = os.path.join(args.base_dir, args.output)
+  os.makedirs(out_dir, exist_ok=True)
+  metadata = CTS_CN.build_from_path(in_dir, out_dir, args.num_workers, tqdm=tqdm)
+  write_metadata(metadata, out_dir)
 
 
 def preprocess_blizzard(args):
@@ -41,9 +49,10 @@ def write_metadata(metadata, out_dir):
 
 def main():
   parser = argparse.ArgumentParser()
+  parser.add_argument('--data_dir', default=os.getcwd())
   parser.add_argument('--base_dir', default=os.getcwd())
   parser.add_argument('--output', default='training')
-  parser.add_argument('--dataset', required=True, choices=['blizzard', 'ljspeech', 'blizzard2013'])
+  parser.add_argument('--dataset', required=True, choices=['blizzard', 'ljspeech', 'blizzard2013', 'CTS'])
   parser.add_argument('--num_workers', type=int, default=cpu_count())
   args = parser.parse_args()
   if args.dataset == 'blizzard':

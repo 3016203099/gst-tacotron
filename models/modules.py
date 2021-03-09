@@ -135,3 +135,36 @@ def conv2d(inputs, filters, kernel_size, strides, activation, is_training, scope
       conv2d_output = activation(conv2d_output)
     return conv2d_output
 
+class GradientReversal:
+  def __init__(self, name="GradRevIdentity"):
+    self.call_num = 0  # 用于防止多次调用call函数时, 名字被重复使用
+    self.name = name
+
+  def call(self, x, s=1.0):
+    op_name = self.name + "_" + str(self.call_num)
+    self.call_num += 1
+
+    @tf.RegisterGradient(op_name)
+    def reverse_grad(op, grad):
+      return [-grad * s]
+
+    g = tf.get_default_graph()
+    with g.gradient_override_map({"Identity": op_name}):  # 将下面的identity的梯度改成op_name对应的梯度计算方式
+      y = tf.identity(x)
+    return y
+
+  def __call__(self, x, s=1.0):
+    return self.call(x, s)
+
+def GRL(inputs, scope):
+  with tf.variable_scope(scope):
+    gr = GradientReversal()
+    f_gr = gr(inputs, 1)
+    return f_gr
+
+def Adversarial_loss(inputs, scope):
+  with tf.variable_scope(scope):
+    dense1 = tf.layers.dense(inputs, units=256, activation=tf.nn.relu, name='dense1')
+    dense2 = tf.layers.dense(dense1, units=256, activation=tf.nn.relu, name='dense2')
+    dense3 = tf.layers.dense(dense2, units=256, activation=tf.nn.relu, name='dense3')
+    return dense3
